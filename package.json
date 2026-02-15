@@ -1,0 +1,18 @@
+{
+    "name": "magnet-to-gdrive",
+    "version": "1.0.0",
+    "description": "Stream torrents from magnet links directly to Google Drive",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "@google-cloud/local-auth": "^3.0.1",
+        "express": "^4.18.2",
+        "googleapis": "^128.0.0",
+        "open": "^9.1.0",
+        "socket.io": "^4.7.2",
+        "webtorrent": "^2.0.14"
+    },
+    "type": "module"
+}

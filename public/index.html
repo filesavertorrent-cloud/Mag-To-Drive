@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magnet to Google Drive</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-color: #bb86fc;
+            --secondary-color: #03dac6;
+            --error-color: #cf6679;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            width: 90%;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        h1 {
+            color: var(--accent-color);
+            margin-bottom: 1.5rem;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 1rem;
+            background-color: #2d2d2d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: var(--text-color);
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #9965f4;
+        }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin-top: 1.5rem;
+            text-align: left;
+            padding: 1rem;
+            background-color: #252525;
+            border-radius: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .progress-container {
+            width: 100%;
+            background-color: #333;
+            border-radius: 6px;
+            margin-top: 1rem;
+            height: 10px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: var(--secondary-color);
+            transition: width 0.3s ease;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 2px;
+        }
+        .log-error { color: var(--error-color); }
+        .log-success { color: var(--secondary-color); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Magnet to Drive</h1>
+        <p>Enter a Magnet Link to stream it directly to Google Drive</p>
+        
+        <input type="text" id="magnetLink" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
+        <button id="startBtn" onclick="startTransfer()">Start Transfer</button>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        const startBtn = document.getElementById('startBtn');
+        const magnetInput = document.getElementById('magnetLink');
+        const statusDiv = document.getElementById('status');
+        const progressBar = document.getElementById('progressBar');
+        const progressContainer = document.getElementById('progressContainer');
+
+        function log(message, type = 'normal') {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            if (type === 'error') entry.classList.add('log-error');
+            if (type === 'success') entry.classList.add('log-success');
+            entry.textContent = `> ${message}`;
+            statusDiv.appendChild(entry);
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+
+        function startTransfer() {
+            const magnet = magnetInput.value.trim();
+            if (!magnet) {
+                log('Please enter a magnet link.', 'error');
+                return;
+            }
+
+            if (!magnet.startsWith('magnet:?')) {
+                log('Invalid magnet link format.', 'error');
+                return;
+            }
+
+            startBtn.disabled = true;
+            magnetInput.disabled = true;
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            log('Initializing transfer...');
+            
+            socket.emit('start-transfer', magnet);
+        }
+
+        socket.on('log', (data) => {
+            log(data);
+        });
+
+        socket.on('error', (data) => {
+            log(data, 'error');
+            startBtn.disabled = false;
+            magnetInput.disabled = false;
+        });
+
+        socket.on('success', (data) => {
+            log(data, 'success');
+            startBtn.disabled = false;
+            magnetInput.disabled = false;
+            progressBar.style.width = '100%';
+        });
+
+        socket.on('progress', (percent) => {
+            progressBar.style.width = `${percent}%`;
+        });
+        
+        socket.on('auth-url', (url) => {
+             log('Authentication required. Please check the server console or popup window.');
+             // Ideally open this in a new tab if helpful, but currently server handles it via 'open' package
+             log('Opening auth window on server...');
+        });
+
+    </script>
+</body>
+</html>
