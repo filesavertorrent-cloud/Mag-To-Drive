@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
-import { authenticate } from '@google-cloud/local-auth';
 import { google } from 'googleapis';
 
 // If modifying these scopes, delete token.json.
@@ -16,6 +15,17 @@ class Drive {
     }
 
     async loadSavedCredentialsIfExist() {
+        // First try environment variables (for cloud deployment)
+        if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
+            return google.auth.fromJSON({
+                type: 'authorized_user',
+                client_id: process.env.GOOGLE_CLIENT_ID,
+                client_secret: process.env.GOOGLE_CLIENT_SECRET,
+                refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+            });
+        }
+
+        // Fallback to token.json file (for local development)
         try {
             const content = await fs.promises.readFile(TOKEN_PATH);
             const credentials = JSON.parse(content);
@@ -46,7 +56,14 @@ class Drive {
             return client;
         }
 
+        // If running in cloud without credentials, throw a helpful error
+        if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+            throw new Error('Google Drive credentials not configured! Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN environment variables.');
+        }
+
+        // Local development: use interactive auth
         console.log("Authorizing...");
+        const { authenticate } = await import('@google-cloud/local-auth');
         try {
             client = await authenticate({
                 scopes: SCOPES,
@@ -54,8 +71,8 @@ class Drive {
             });
         } catch (error) {
             if (error.code === 'ENOENT' || error.message.includes('Cannot find module')) {
-                console.error("Error: credentials.json not found. Please place it in the root directory.");
-                throw new Error("Missing credentials.json! Please download it from Google Cloud Console and place it in the project folder.");
+                console.error("Error: credentials.json not found.");
+                throw new Error("Missing credentials.json!");
             }
             throw error;
         }
@@ -73,7 +90,6 @@ class Drive {
             await this.authorize();
         }
 
-        // Search for existing folder with this name
         const query = `name='${folderName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
         const res = await this.drive.files.list({
             q: query,
@@ -86,7 +102,6 @@ class Drive {
             return res.data.files[0].id;
         }
 
-        // Create new folder
         const folder = await this.drive.files.create({
             requestBody: {
                 name: folderName,
@@ -111,7 +126,6 @@ class Drive {
                 name: fileName,
             };
 
-            // If a folder ID is provided, place the file inside it
             if (folderId) {
                 requestBody.parents = [folderId];
             }

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: mag-to-drive
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SEEDR_EMAIL
+        sync: false
+      - key: SEEDR_PASSWORD
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false

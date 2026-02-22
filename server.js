@@ -4,7 +4,6 @@ import { Server } from 'socket.io';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import open from 'open';
 import drive from './drive.js';
 import Seedr from './seedr.js';
 
@@ -23,6 +22,7 @@ process.on('unhandledRejection', (reason) => {
 // Validate Seedr credentials
 const SEEDR_EMAIL = process.env.SEEDR_EMAIL;
 const SEEDR_PASSWORD = process.env.SEEDR_PASSWORD;
+const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123';
 
 if (!SEEDR_EMAIL || !SEEDR_PASSWORD || SEEDR_EMAIL === 'your_seedr_email@example.com') {
     console.error('\n❌ ERROR: Please set your Seedr credentials in the .env file!');
@@ -35,8 +35,21 @@ const seedr = new Seedr(SEEDR_EMAIL, SEEDR_PASSWORD);
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const port = 3000;
+const port = process.env.PORT || 3000;
 
+app.use(express.json());
+
+// Password verification endpoint
+app.post('/api/verify-password', (req, res) => {
+    const { password } = req.body;
+    if (password === APP_PASSWORD) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, error: 'Wrong password' });
+    }
+});
+
+// Serve static files
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
@@ -48,19 +61,14 @@ function cleanFileName(filename) {
     const ext = path.extname(filename);
     let name = filename.slice(0, -ext.length);
 
-    // Remove website prefix (e.g., "www.1TamilMV.rsvp_-_")
     name = name.replace(/^www\.[^\s_-]+[_\-\s]+/i, '');
-
-    // Replace underscores, hyphens with spaces
     name = name.replace(/[_\-]+/g, ' ');
-
-    // Clean up multiple spaces
     name = name.replace(/\s{2,}/g, ' ').trim();
 
     return name + ext;
 }
 
-// Extract the movie name from a cleaned filename (everything before the year)
+// Extract the movie name from a cleaned filename
 function getMovieName(cleanedFilename) {
     const nameWithoutExt = cleanedFilename.replace(path.extname(cleanedFilename), '');
 
@@ -88,8 +96,24 @@ function findLargestFile(folderData) {
 
 io.on('connection', (socket) => {
     console.log('A user connected');
+    let authenticated = false;
+
+    // Password check via socket
+    socket.on('auth', (password, callback) => {
+        if (password === APP_PASSWORD) {
+            authenticated = true;
+            callback({ success: true });
+        } else {
+            callback({ success: false });
+        }
+    });
 
     socket.on('start-transfer', async (magnetLink) => {
+        if (!authenticated) {
+            socket.emit('error', 'Not authenticated. Please enter the password.');
+            return;
+        }
+
         console.log(`Received magnet link: ${magnetLink}`);
 
         try {
@@ -108,7 +132,7 @@ io.on('connection', (socket) => {
                 throw new Error(addResult.error || addResult.message || 'Seedr rejected the magnet link');
             }
 
-            socket.emit('log', `Magnet added to Seedr! Title: ${addResult.title || 'processing...'}`);
+            socket.emit('log', `Magnet added! Title: ${addResult.title || 'processing...'}`);
 
             // ── Stage 2: Wait for Seedr to download ──
             socket.emit('stage', { stage: 2, label: 'Seedr is downloading...' });
@@ -120,36 +144,28 @@ io.on('connection', (socket) => {
             });
 
             socket.emit('log', 'Seedr download complete!');
-            console.log('Seedr download complete');
 
             // ── Stage 3: Find the downloaded file ──
             socket.emit('stage', { stage: 3, label: 'Finding downloaded file...' });
             socket.emit('log', 'Looking for file in Seedr...');
 
-            // Get fresh folder contents
             const rootContents = rootAfterDownload || await seedr.getFolderContents();
-            console.log('Seedr root:', JSON.stringify(rootContents, null, 2));
 
             let targetFile = null;
             let targetFolderId = null;
 
-            // Torrents usually create a subfolder
             if (rootContents.folders && rootContents.folders.length > 0) {
                 const folder = rootContents.folders[rootContents.folders.length - 1];
                 targetFolderId = folder.id;
 
                 const folderContents = await seedr.getFolderContents(folder.id);
-                console.log(`Folder "${folder.name}":`, JSON.stringify(folderContents, null, 2));
-
                 targetFile = findLargestFile(folderContents);
 
-                // Use folder_file_id if available (Seedr uses this for file operations)
                 if (targetFile && targetFile.folder_file_id) {
                     targetFile.id = targetFile.folder_file_id;
                 }
             }
 
-            // Check root-level files if no subfolder file found
             if (!targetFile) {
                 targetFile = findLargestFile(rootContents);
                 if (targetFile && targetFile.folder_file_id) {
@@ -158,7 +174,7 @@ io.on('connection', (socket) => {
             }
 
             if (!targetFile) {
-                throw new Error('Could not find downloaded file in Seedr. Check your Seedr dashboard.');
+                throw new Error('Could not find downloaded file in Seedr.');
             }
 
             const originalName = targetFile.name;
@@ -169,7 +185,6 @@ io.on('connection', (socket) => {
             socket.emit('log', `Found: ${originalName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
             socket.emit('log', `Clean name: ${cleanedName}`);
             socket.emit('log', `Drive folder: ${movieName}`);
-            console.log(`Original: ${originalName} | Cleaned: ${cleanedName} | Folder: ${movieName}`);
 
             // ── Stage 4: Upload to Google Drive ──
             socket.emit('stage', { stage: 4, label: 'Uploading to Google Drive...' });
@@ -183,10 +198,7 @@ io.on('connection', (socket) => {
             const uploadSize = contentLength || fileSize;
 
             const driveFileId = await drive.uploadStream(
-                cleanedName,
-                stream,
-                mimeType,
-                uploadSize,
+                cleanedName, stream, mimeType, uploadSize,
                 (progressEvent) => {
                     if (uploadSize && progressEvent.bytesRead) {
                         const percent = ((progressEvent.bytesRead / uploadSize) * 100).toFixed(1);
@@ -197,11 +209,10 @@ io.on('connection', (socket) => {
             );
 
             socket.emit('log', `Upload complete! Drive File ID: ${driveFileId}`);
-            console.log(`Upload complete! File ID: ${driveFileId}`);
 
             // ── Stage 5: Cleanup Seedr ──
             socket.emit('stage', { stage: 5, label: 'Cleaning up Seedr...' });
-            socket.emit('log', 'Deleting from Seedr to free storage...');
+            socket.emit('log', 'Deleting from Seedr...');
 
             try {
                 if (targetFolderId) {
@@ -210,14 +221,11 @@ io.on('connection', (socket) => {
                     await seedr.deleteFile(targetFile.id);
                 }
                 socket.emit('log', 'Seedr cleaned up!');
-                console.log('Seedr cleanup done');
             } catch (cleanupErr) {
-                console.error('Seedr cleanup error (non-fatal):', cleanupErr.message);
-                socket.emit('log', `⚠ Cleanup warning: ${cleanupErr.message}. Delete manually from Seedr.`);
+                socket.emit('log', `⚠ Cleanup warning: ${cleanupErr.message}`);
             }
 
-            // ── Done! ──
-            socket.emit('success', `✅ "${cleanedName}" uploaded to Google Drive in folder "${movieName}"!`);
+            socket.emit('success', `✅ "${cleanedName}" uploaded to Drive in folder "${movieName}"!`);
 
         } catch (err) {
             console.error('Transfer error:', err);
@@ -233,7 +241,12 @@ io.on('connection', (socket) => {
 
 server.listen(port, () => {
     console.log(`\n🚀 Server listening on http://localhost:${port}`);
-    console.log(`📧 Seedr account: ${SEEDR_EMAIL}`);
+    console.log(`📧 Seedr: ${SEEDR_EMAIL}`);
+    console.log(`🔒 Password protected: YES`);
     console.log(`📁 Flow: Magnet → Seedr → Google Drive\n`);
-    open(`http://localhost:${port}`);
+
+    // Only open browser locally, not on cloud
+    if (!process.env.RENDER && !process.env.NODE_ENV) {
+        import('open').then(m => m.default(`http://localhost:${port}`));
+    }
 });

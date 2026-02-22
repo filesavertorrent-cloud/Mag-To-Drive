@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,10 +17,7 @@
             --accent-color: #bb86fc;
             --accent-glow: rgba(187, 134, 252, 0.25);
             --secondary-color: #03dac6;
-            --secondary-glow: rgba(3, 218, 198, 0.2);
             --error-color: #cf6679;
-            --success-color: #03dac6;
-            --warning-color: #ffb74d;
         }
 
         * {
@@ -29,9 +27,9 @@
         }
 
         body {
-            font-family: 'Inter', 'Segoe UI', sans-serif;
+            font-family: 'Inter', sans-serif;
             background-color: var(--bg-color);
-            background-image: 
+            background-image:
                 radial-gradient(ellipse at 20% 50%, rgba(187, 134, 252, 0.04) 0%, transparent 50%),
                 radial-gradient(ellipse at 80% 20%, rgba(3, 218, 198, 0.03) 0%, transparent 50%);
             color: var(--text-color);
@@ -47,7 +45,7 @@
             border: 1px solid var(--card-border);
             padding: 2.5rem;
             border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 80px rgba(187, 134, 252, 0.03);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
             width: 100%;
             max-width: 640px;
         }
@@ -61,7 +59,6 @@
             color: var(--accent-color);
             font-size: 1.8rem;
             font-weight: 700;
-            letter-spacing: -0.5px;
             margin-bottom: 0.5rem;
         }
 
@@ -80,14 +77,10 @@
             color: var(--secondary-color);
             font-size: 0.75rem;
             font-weight: 600;
-            letter-spacing: 0.5px;
         }
 
-        .input-group {
-            margin-bottom: 1.5rem;
-        }
-
-        input[type="text"] {
+        input[type="text"],
+        input[type="password"] {
             width: 100%;
             padding: 14px 16px;
             background-color: rgba(255, 255, 255, 0.04);
@@ -97,20 +90,20 @@
             font-size: 0.95rem;
             font-family: 'Inter', sans-serif;
             transition: all 0.3s ease;
+            margin-bottom: 1rem;
         }
 
-        input[type="text"]:focus {
+        input:focus {
             outline: none;
             border-color: var(--accent-color);
             box-shadow: 0 0 0 3px var(--accent-glow);
-            background-color: rgba(255, 255, 255, 0.06);
         }
 
-        input[type="text"]::placeholder {
+        input::placeholder {
             color: var(--text-muted);
         }
 
-        button#startBtn {
+        .btn {
             width: 100%;
             background: linear-gradient(135deg, var(--accent-color), #9965f4);
             color: #fff;
@@ -122,19 +115,18 @@
             cursor: pointer;
             transition: all 0.3s ease;
             font-family: 'Inter', sans-serif;
-            letter-spacing: 0.3px;
         }
 
-        button#startBtn:hover {
+        .btn:hover {
             transform: translateY(-1px);
             box-shadow: 0 6px 20px var(--accent-glow);
         }
 
-        button#startBtn:active {
+        .btn:active {
             transform: translateY(0);
         }
 
-        button#startBtn:disabled {
+        .btn:disabled {
             background: rgba(255, 255, 255, 0.08);
             color: var(--text-muted);
             cursor: not-allowed;
@@ -142,11 +134,26 @@
             box-shadow: none;
         }
 
-        /* Pipeline Stages */
+        .error-msg {
+            color: var(--error-color);
+            font-size: 0.85rem;
+            text-align: center;
+            margin-top: 0.5rem;
+        }
+
+        /* Login Screen */
+        #loginScreen {
+            display: block;
+        }
+
+        #mainScreen {
+            display: none;
+        }
+
+        /* Stages */
         .stages {
             display: none;
             margin: 1.5rem 0;
-            gap: 0;
         }
 
         .stages.active {
@@ -165,7 +172,7 @@
             transition: all 0.3s ease;
         }
 
-        .stage-item .stage-icon {
+        .stage-icon {
             width: 28px;
             height: 28px;
             border-radius: 50%;
@@ -204,11 +211,17 @@
         }
 
         @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 8px var(--accent-glow); }
-            50% { box-shadow: 0 0 20px var(--accent-glow); }
+
+            0%,
+            100% {
+                box-shadow: 0 0 8px var(--accent-glow);
+            }
+
+            50% {
+                box-shadow: 0 0 20px var(--accent-glow);
+            }
         }
 
-        /* Progress bar */
         .progress-container {
             width: 100%;
             background-color: rgba(255, 255, 255, 0.05);
@@ -235,7 +248,6 @@
             display: none;
         }
 
-        /* Log area */
         #status {
             margin-top: 1.5rem;
             text-align: left;
@@ -245,7 +257,7 @@
             border-radius: 10px;
             max-height: 220px;
             overflow-y: auto;
-            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-family: 'JetBrains Mono', monospace;
             font-size: 0.8rem;
             line-height: 1.6;
             display: none;
@@ -259,10 +271,6 @@
             width: 4px;
         }
 
-        #status::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
         #status::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.1);
             border-radius: 4px;
@@ -274,173 +282,158 @@
             opacity: 0.85;
         }
 
-        .log-error { color: var(--error-color); opacity: 1; }
-        .log-success { color: var(--secondary-color); opacity: 1; font-weight: 600; }
+        .log-error {
+            color: var(--error-color);
+            opacity: 1;
+        }
+
+        .log-success {
+            color: var(--secondary-color);
+            opacity: 1;
+            font-weight: 600;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
             <h1>⚡ Magnet to Drive</h1>
             <p>Paste a magnet link — Seedr downloads it, then streams to Google Drive</p>
-            <span class="badge">SEEDR → GOOGLE DRIVE</span>
+            <span class="badge">🔒 PRIVATE · SEEDR → GOOGLE DRIVE</span>
         </div>
 
-        <div class="input-group">
+        <!-- Login Screen -->
+        <div id="loginScreen">
+            <input type="password" id="passwordInput" placeholder="Enter password..." autofocus>
+            <button class="btn" id="loginBtn" onclick="doLogin()">🔓 Unlock</button>
+            <div class="error-msg" id="loginError"></div>
+        </div>
+
+        <!-- Main Screen (hidden until auth) -->
+        <div id="mainScreen">
             <input type="text" id="magnetLink" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
-        </div>
-        <button id="startBtn" onclick="startTransfer()">🚀 Start Transfer</button>
+            <button class="btn" id="startBtn" onclick="startTransfer()">🚀 Start Transfer</button>
 
-        <div class="stages" id="stagesContainer">
-            <div class="stage-item" id="stage-1">
-                <div class="stage-icon">1</div>
-                <span>Adding magnet to Seedr</span>
+            <div class="stages" id="stagesContainer">
+                <div class="stage-item" id="stage-1">
+                    <div class="stage-icon">1</div><span>Adding magnet to Seedr</span>
+                </div>
+                <div class="stage-item" id="stage-2">
+                    <div class="stage-icon">2</div><span>Seedr downloading</span>
+                </div>
+                <div class="stage-item" id="stage-3">
+                    <div class="stage-icon">3</div><span>Finding file</span>
+                </div>
+                <div class="stage-item" id="stage-4">
+                    <div class="stage-icon">4</div><span>Uploading to Google Drive</span>
+                </div>
+                <div class="stage-item" id="stage-5">
+                    <div class="stage-icon">5</div><span>Cleaning up Seedr</span>
+                </div>
             </div>
-            <div class="stage-item" id="stage-2">
-                <div class="stage-icon">2</div>
-                <span>Seedr downloading</span>
-            </div>
-            <div class="stage-item" id="stage-3">
-                <div class="stage-icon">3</div>
-                <span>Finding file</span>
-            </div>
-            <div class="stage-item" id="stage-4">
-                <div class="stage-icon">4</div>
-                <span>Uploading to Google Drive</span>
-            </div>
-            <div class="stage-item" id="stage-5">
-                <div class="stage-icon">5</div>
-                <span>Cleaning up Seedr</span>
-            </div>
-        </div>
 
-        <div class="progress-container" id="progressContainer">
-            <div class="progress-bar" id="progressBar"></div>
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-label" id="progressLabel"></div>
+            <div id="status"></div>
         </div>
-        <div class="progress-label" id="progressLabel"></div>
-
-        <div id="status"></div>
     </div>
 
     <script>
         const socket = io();
+
+        // Login
+        function doLogin() {
+            const pw = document.getElementById('passwordInput').value;
+            const errEl = document.getElementById('loginError');
+            if (!pw) { errEl.textContent = 'Please enter a password.'; return; }
+
+            document.getElementById('loginBtn').disabled = true;
+            errEl.textContent = '';
+
+            socket.emit('auth', pw, (res) => {
+                if (res.success) {
+                    document.getElementById('loginScreen').style.display = 'none';
+                    document.getElementById('mainScreen').style.display = 'block';
+                } else {
+                    errEl.textContent = 'Wrong password. Try again.';
+                    document.getElementById('loginBtn').disabled = false;
+                }
+            });
+        }
+
+        document.getElementById('passwordInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') doLogin();
+        });
+
+        // Transfer
         const startBtn = document.getElementById('startBtn');
         const magnetInput = document.getElementById('magnetLink');
         const statusDiv = document.getElementById('status');
         const progressBar = document.getElementById('progressBar');
         const progressContainer = document.getElementById('progressContainer');
         const progressLabel = document.getElementById('progressLabel');
-        const stagesContainer = document.getElementById('stagesContainer');
 
-        let currentStage = 0;
-
-        function log(message, type = 'normal') {
+        function log(msg, type = 'normal') {
             statusDiv.classList.add('active');
             const entry = document.createElement('div');
             entry.className = 'log-entry';
             if (type === 'error') entry.classList.add('log-error');
             if (type === 'success') entry.classList.add('log-success');
-            entry.textContent = `> ${message}`;
+            entry.textContent = `> ${msg}`;
             statusDiv.appendChild(entry);
             statusDiv.scrollTop = statusDiv.scrollHeight;
         }
 
-        function setStage(stageNum) {
-            // Mark previous stages as done
-            for (let i = 1; i < stageNum; i++) {
+        function setStage(n) {
+            for (let i = 1; i < n; i++) {
                 const el = document.getElementById(`stage-${i}`);
-                if (el) {
-                    el.classList.remove('active');
-                    el.classList.add('done');
-                    el.querySelector('.stage-icon').textContent = '✓';
-                }
+                if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.stage-icon').textContent = '✓'; }
             }
-
-            // Set current stage active
-            const currentEl = document.getElementById(`stage-${stageNum}`);
-            if (currentEl) {
-                currentEl.classList.add('active');
-                currentEl.classList.remove('done');
-            }
-
-            currentStage = stageNum;
+            const cur = document.getElementById(`stage-${n}`);
+            if (cur) { cur.classList.add('active'); cur.classList.remove('done'); }
         }
 
         function startTransfer() {
             const magnet = magnetInput.value.trim();
-            if (!magnet) {
-                log('Please enter a magnet link.', 'error');
-                return;
-            }
+            if (!magnet) { log('Please enter a magnet link.', 'error'); return; }
+            if (!magnet.startsWith('magnet:?')) { log('Invalid magnet link.', 'error'); return; }
 
-            if (!magnet.startsWith('magnet:?')) {
-                log('Invalid magnet link format.', 'error');
-                return;
-            }
-
-            // Reset UI
-            startBtn.disabled = true;
-            magnetInput.disabled = true;
+            startBtn.disabled = true; magnetInput.disabled = true;
             progressContainer.style.display = 'block';
             progressLabel.style.display = 'block';
             progressBar.style.width = '0%';
-            progressLabel.textContent = '';
-            stagesContainer.classList.add('active');
+            document.getElementById('stagesContainer').classList.add('active');
             statusDiv.innerHTML = '';
-
             log('Initializing transfer...');
             socket.emit('start-transfer', magnet);
         }
 
         function resetUI() {
-            startBtn.disabled = false;
-            magnetInput.disabled = false;
+            startBtn.disabled = false; magnetInput.disabled = false;
             magnetInput.value = '';
         }
 
-        socket.on('stage', ({ stage, label }) => {
-            setStage(stage);
-            log(label);
-        });
-
-        socket.on('log', (data) => {
-            log(data);
-        });
-
+        socket.on('stage', ({ stage, label }) => { setStage(stage); log(label); });
+        socket.on('log', (d) => log(d));
         socket.on('progress', ({ stage, percent }) => {
             progressBar.style.width = `${Math.min(percent, 100)}%`;
-            if (stage === 'seedr') {
-                progressLabel.textContent = `Seedr download: ${percent.toFixed(1)}%`;
-            } else if (stage === 'drive') {
-                progressLabel.textContent = `Drive upload: ${percent.toFixed(1)}%`;
-            }
+            progressLabel.textContent = stage === 'seedr' ? `Seedr: ${percent.toFixed(1)}%` : `Drive: ${percent.toFixed(1)}%`;
         });
-
-        socket.on('error', (data) => {
-            log(data, 'error');
-            resetUI();
-        });
-
-        socket.on('success', (data) => {
-            // Mark all stages done
+        socket.on('error', (d) => { log(d, 'error'); resetUI(); });
+        socket.on('success', (d) => {
             for (let i = 1; i <= 5; i++) {
                 const el = document.getElementById(`stage-${i}`);
-                if (el) {
-                    el.classList.remove('active');
-                    el.classList.add('done');
-                    el.querySelector('.stage-icon').textContent = '✓';
-                }
+                if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.stage-icon').textContent = '✓'; }
             }
-            
             progressBar.style.width = '100%';
             progressLabel.textContent = 'Complete!';
-            log(data, 'success');
+            log(d, 'success');
             resetUI();
-        });
-
-        socket.on('auth-url', (url) => {
-            log('Google Drive authentication required. Check server console.', 'error');
         });
     </script>
 </body>
+
 </html>
