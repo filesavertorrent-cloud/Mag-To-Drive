@@ -68,7 +68,38 @@ class Drive {
         return client;
     }
 
-    async uploadStream(fileName, fileStream, mimeType, fileSize, onProgress) {
+    async findOrCreateFolder(folderName) {
+        if (!this.drive) {
+            await this.authorize();
+        }
+
+        // Search for existing folder with this name
+        const query = `name='${folderName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+        const res = await this.drive.files.list({
+            q: query,
+            fields: 'files(id, name)',
+            spaces: 'drive',
+        });
+
+        if (res.data.files && res.data.files.length > 0) {
+            console.log(`Found existing folder: ${folderName} (${res.data.files[0].id})`);
+            return res.data.files[0].id;
+        }
+
+        // Create new folder
+        const folder = await this.drive.files.create({
+            requestBody: {
+                name: folderName,
+                mimeType: 'application/vnd.google-apps.folder',
+            },
+            fields: 'id',
+        });
+
+        console.log(`Created new folder: ${folderName} (${folder.data.id})`);
+        return folder.data.id;
+    }
+
+    async uploadStream(fileName, fileStream, mimeType, fileSize, onProgress, folderId) {
         if (!this.drive) {
             await this.authorize();
         }
@@ -78,8 +109,13 @@ class Drive {
         try {
             const requestBody = {
                 name: fileName,
-                fields: 'id',
             };
+
+            // If a folder ID is provided, place the file inside it
+            if (folderId) {
+                requestBody.parents = [folderId];
+            }
+
             const media = {
                 mimeType: mimeType,
                 body: fileStream,

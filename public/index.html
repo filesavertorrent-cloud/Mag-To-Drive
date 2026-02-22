@@ -5,98 +5,216 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magnet to Google Drive</title>
     <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #121212;
-            --card-bg: #1e1e1e;
+            --bg-color: #0a0a0f;
+            --card-bg: #14141f;
+            --card-border: rgba(187, 134, 252, 0.08);
             --text-color: #e0e0e0;
+            --text-muted: #8888a0;
             --accent-color: #bb86fc;
+            --accent-glow: rgba(187, 134, 252, 0.25);
             --secondary-color: #03dac6;
+            --secondary-glow: rgba(3, 218, 198, 0.2);
             --error-color: #cf6679;
+            --success-color: #03dac6;
+            --warning-color: #ffb74d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
             background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(ellipse at 20% 50%, rgba(187, 134, 252, 0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(3, 218, 198, 0.03) 0%, transparent 50%);
             color: var(--text-color);
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
-            margin: 0;
+            min-height: 100vh;
+            padding: 1rem;
         }
 
         .container {
             background-color: var(--card-bg);
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            width: 90%;
-            max-width: 600px;
-            text-align: center;
+            border: 1px solid var(--card-border);
+            padding: 2.5rem;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 80px rgba(187, 134, 252, 0.03);
+            width: 100%;
+            max-width: 640px;
         }
 
-        h1 {
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
             color: var(--accent-color);
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .header .badge {
+            display: inline-block;
+            margin-top: 0.6rem;
+            padding: 4px 12px;
+            background: rgba(3, 218, 198, 0.1);
+            border: 1px solid rgba(3, 218, 198, 0.2);
+            border-radius: 20px;
+            color: var(--secondary-color);
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .input-group {
             margin-bottom: 1.5rem;
         }
 
         input[type="text"] {
             width: 100%;
-            padding: 12px;
-            margin-bottom: 1rem;
-            background-color: #2d2d2d;
-            border: 1px solid #333;
-            border-radius: 6px;
+            padding: 14px 16px;
+            background-color: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
             color: var(--text-color);
-            font-size: 1rem;
-            box-sizing: border-box;
+            font-size: 0.95rem;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
         }
 
         input[type="text"]:focus {
             outline: none;
             border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+            background-color: rgba(255, 255, 255, 0.06);
         }
 
-        button {
-            background-color: var(--accent-color);
-            color: #000;
+        input[type="text"]::placeholder {
+            color: var(--text-muted);
+        }
+
+        button#startBtn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--accent-color), #9965f4);
+            color: #fff;
             border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
+            padding: 14px 24px;
+            border-radius: 10px;
             font-size: 1rem;
-            font-weight: bold;
+            font-weight: 600;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.3px;
         }
 
-        button:hover {
-            background-color: #9965f4;
+        button#startBtn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px var(--accent-glow);
         }
 
-        button:disabled {
-            background-color: #555;
+        button#startBtn:active {
+            transform: translateY(0);
+        }
+
+        button#startBtn:disabled {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
-        #status {
-            margin-top: 1.5rem;
-            text-align: left;
-            padding: 1rem;
-            background-color: #252525;
-            border-radius: 6px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 0.9rem;
+        /* Pipeline Stages */
+        .stages {
+            display: none;
+            margin: 1.5rem 0;
+            gap: 0;
         }
 
+        .stages.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stage-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .stage-item .stage-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            flex-shrink: 0;
+            transition: all 0.3s ease;
+        }
+
+        .stage-item.active {
+            color: var(--accent-color);
+            background: rgba(187, 134, 252, 0.05);
+        }
+
+        .stage-item.active .stage-icon {
+            background: var(--accent-color);
+            color: #000;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 12px var(--accent-glow);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .stage-item.done {
+            color: var(--secondary-color);
+        }
+
+        .stage-item.done .stage-icon {
+            background: var(--secondary-color);
+            color: #000;
+            border-color: var(--secondary-color);
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 8px var(--accent-glow); }
+            50% { box-shadow: 0 0 20px var(--accent-glow); }
+        }
+
+        /* Progress bar */
         .progress-container {
             width: 100%;
-            background-color: #333;
-            border-radius: 6px;
-            margin-top: 1rem;
-            height: 10px;
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin: 1rem 0;
+            height: 8px;
             overflow: hidden;
             display: none;
         }
@@ -104,30 +222,102 @@
         .progress-bar {
             width: 0%;
             height: 100%;
-            background-color: var(--secondary-color);
-            transition: width 0.3s ease;
+            background: linear-gradient(90deg, var(--accent-color), var(--secondary-color));
+            transition: width 0.5s ease;
+            border-radius: 8px;
+        }
+
+        .progress-label {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            display: none;
+        }
+
+        /* Log area */
+        #status {
+            margin-top: 1.5rem;
+            text-align: left;
+            padding: 1rem;
+            background-color: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            display: none;
+        }
+
+        #status.active {
+            display: block;
+        }
+
+        #status::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        #status::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #status::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
         }
 
         .log-entry {
             margin-bottom: 4px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 2px;
+            padding: 2px 0;
+            opacity: 0.85;
         }
-        .log-error { color: var(--error-color); }
-        .log-success { color: var(--secondary-color); }
+
+        .log-error { color: var(--error-color); opacity: 1; }
+        .log-success { color: var(--secondary-color); opacity: 1; font-weight: 600; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Magnet to Drive</h1>
-        <p>Enter a Magnet Link to stream it directly to Google Drive</p>
-        
-        <input type="text" id="magnetLink" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
-        <button id="startBtn" onclick="startTransfer()">Start Transfer</button>
+        <div class="header">
+            <h1>⚡ Magnet to Drive</h1>
+            <p>Paste a magnet link — Seedr downloads it, then streams to Google Drive</p>
+            <span class="badge">SEEDR → GOOGLE DRIVE</span>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="magnetLink" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
+        </div>
+        <button id="startBtn" onclick="startTransfer()">🚀 Start Transfer</button>
+
+        <div class="stages" id="stagesContainer">
+            <div class="stage-item" id="stage-1">
+                <div class="stage-icon">1</div>
+                <span>Adding magnet to Seedr</span>
+            </div>
+            <div class="stage-item" id="stage-2">
+                <div class="stage-icon">2</div>
+                <span>Seedr downloading</span>
+            </div>
+            <div class="stage-item" id="stage-3">
+                <div class="stage-icon">3</div>
+                <span>Finding file</span>
+            </div>
+            <div class="stage-item" id="stage-4">
+                <div class="stage-icon">4</div>
+                <span>Uploading to Google Drive</span>
+            </div>
+            <div class="stage-item" id="stage-5">
+                <div class="stage-icon">5</div>
+                <span>Cleaning up Seedr</span>
+            </div>
+        </div>
 
         <div class="progress-container" id="progressContainer">
             <div class="progress-bar" id="progressBar"></div>
         </div>
+        <div class="progress-label" id="progressLabel"></div>
 
         <div id="status"></div>
     </div>
@@ -139,8 +329,13 @@
         const statusDiv = document.getElementById('status');
         const progressBar = document.getElementById('progressBar');
         const progressContainer = document.getElementById('progressContainer');
+        const progressLabel = document.getElementById('progressLabel');
+        const stagesContainer = document.getElementById('stagesContainer');
+
+        let currentStage = 0;
 
         function log(message, type = 'normal') {
+            statusDiv.classList.add('active');
             const entry = document.createElement('div');
             entry.className = 'log-entry';
             if (type === 'error') entry.classList.add('log-error');
@@ -148,6 +343,27 @@
             entry.textContent = `> ${message}`;
             statusDiv.appendChild(entry);
             statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+
+        function setStage(stageNum) {
+            // Mark previous stages as done
+            for (let i = 1; i < stageNum; i++) {
+                const el = document.getElementById(`stage-${i}`);
+                if (el) {
+                    el.classList.remove('active');
+                    el.classList.add('done');
+                    el.querySelector('.stage-icon').textContent = '✓';
+                }
+            }
+
+            // Set current stage active
+            const currentEl = document.getElementById(`stage-${stageNum}`);
+            if (currentEl) {
+                currentEl.classList.add('active');
+                currentEl.classList.remove('done');
+            }
+
+            currentStage = stageNum;
         }
 
         function startTransfer() {
@@ -162,42 +378,69 @@
                 return;
             }
 
+            // Reset UI
             startBtn.disabled = true;
             magnetInput.disabled = true;
             progressContainer.style.display = 'block';
+            progressLabel.style.display = 'block';
             progressBar.style.width = '0%';
+            progressLabel.textContent = '';
+            stagesContainer.classList.add('active');
+            statusDiv.innerHTML = '';
+
             log('Initializing transfer...');
-            
             socket.emit('start-transfer', magnet);
         }
+
+        function resetUI() {
+            startBtn.disabled = false;
+            magnetInput.disabled = false;
+            magnetInput.value = '';
+        }
+
+        socket.on('stage', ({ stage, label }) => {
+            setStage(stage);
+            log(label);
+        });
 
         socket.on('log', (data) => {
             log(data);
         });
 
+        socket.on('progress', ({ stage, percent }) => {
+            progressBar.style.width = `${Math.min(percent, 100)}%`;
+            if (stage === 'seedr') {
+                progressLabel.textContent = `Seedr download: ${percent.toFixed(1)}%`;
+            } else if (stage === 'drive') {
+                progressLabel.textContent = `Drive upload: ${percent.toFixed(1)}%`;
+            }
+        });
+
         socket.on('error', (data) => {
             log(data, 'error');
-            startBtn.disabled = false;
-            magnetInput.disabled = false;
+            resetUI();
         });
 
         socket.on('success', (data) => {
-            log(data, 'success');
-            startBtn.disabled = false;
-            magnetInput.disabled = false;
+            // Mark all stages done
+            for (let i = 1; i <= 5; i++) {
+                const el = document.getElementById(`stage-${i}`);
+                if (el) {
+                    el.classList.remove('active');
+                    el.classList.add('done');
+                    el.querySelector('.stage-icon').textContent = '✓';
+                }
+            }
+            
             progressBar.style.width = '100%';
+            progressLabel.textContent = 'Complete!';
+            log(data, 'success');
+            resetUI();
         });
 
-        socket.on('progress', (percent) => {
-            progressBar.style.width = `${percent}%`;
-        });
-        
         socket.on('auth-url', (url) => {
-             log('Authentication required. Please check the server console or popup window.');
-             // Ideally open this in a new tab if helpful, but currently server handles it via 'open' package
-             log('Opening auth window on server...');
+            log('Google Drive authentication required. Check server console.', 'error');
         });
-
     </script>
 </body>
 </html>
