@@ -153,6 +153,23 @@ class Drive {
             throw err;
         }
     }
+
+    async makePublic(fileId) {
+        if (!this.drive) {
+            await this.authorize();
+        }
+
+        await this.drive.permissions.create({
+            fileId: fileId,
+            requestBody: {
+                type: 'anyone',
+                role: 'reader',
+            },
+        });
+
+        console.log(`Made public: ${fileId}`);
+        return `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+    }
 }
 
 export default new Drive();

@@ -292,6 +292,76 @@
             opacity: 1;
             font-weight: 600;
         }
+
+        /* Get Link Button */
+        .get-link-container {
+            display: none;
+            margin-top: 1.2rem;
+            text-align: center;
+        }
+
+        .get-link-container.active {
+            display: block;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .btn-get-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, #03dac6, #00b4a0);
+            color: #000;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+            position: relative;
+        }
+
+        .btn-get-link:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(3, 218, 198, 0.35);
+        }
+
+        .btn-get-link:active {
+            transform: translateY(0);
+        }
+
+        .btn-get-link .copied-tooltip {
+            position: absolute;
+            top: -32px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--secondary-color);
+            color: #000;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .btn-get-link .copied-tooltip.show {
+            opacity: 1;
+        }
     </style>
 </head>
 
@@ -338,6 +408,13 @@
             </div>
             <div class="progress-label" id="progressLabel"></div>
             <div id="status"></div>
+
+            <div class="get-link-container" id="getLinkContainer">
+                <button class="btn-get-link" id="getLinkBtn" onclick="copyLink()">
+                    📋 Get Link
+                    <span class="copied-tooltip" id="copiedTooltip">Copied!</span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -406,6 +483,8 @@
             progressLabel.style.display = 'block';
             progressBar.style.width = '0%';
             document.getElementById('stagesContainer').classList.add('active');
+            document.getElementById('getLinkContainer').classList.remove('active');
+            currentShareLink = '';
             statusDiv.innerHTML = '';
             log('Initializing transfer...');
             socket.emit('start-transfer', magnet);
@@ -422,7 +501,13 @@
             progressBar.style.width = `${Math.min(percent, 100)}%`;
             progressLabel.textContent = stage === 'seedr' ? `Seedr: ${percent.toFixed(1)}%` : `Drive: ${percent.toFixed(1)}%`;
         });
+        let currentShareLink = '';
+
         socket.on('error', (d) => { log(d, 'error'); resetUI(); });
+        socket.on('share-link', (link) => {
+            currentShareLink = link;
+            document.getElementById('getLinkContainer').classList.add('active');
+        });
         socket.on('success', (d) => {
             for (let i = 1; i <= 5; i++) {
                 const el = document.getElementById(`stage-${i}`);
@@ -433,6 +518,15 @@
             log(d, 'success');
             resetUI();
         });
+
+        function copyLink() {
+            if (!currentShareLink) return;
+            navigator.clipboard.writeText(currentShareLink).then(() => {
+                const tooltip = document.getElementById('copiedTooltip');
+                tooltip.classList.add('show');
+                setTimeout(() => tooltip.classList.remove('show'), 1500);
+            });
+        }
     </script>
 </body>
 

@@ -210,6 +210,17 @@ io.on('connection', (socket) => {
 
             socket.emit('log', `Upload complete! Drive File ID: ${driveFileId}`);
 
+            // ── Stage 4b: Make publicly accessible ──
+            socket.emit('log', 'Setting sharing permissions...');
+            try {
+                await drive.makePublic(driveFolderId);
+                const shareLink = await drive.makePublic(driveFileId);
+                socket.emit('log', '🔗 File is now public (anyone with the link)');
+                socket.emit('share-link', shareLink);
+            } catch (shareErr) {
+                socket.emit('log', `⚠ Sharing warning: ${shareErr.message}`);
+            }
+
             // ── Stage 5: Cleanup Seedr ──
             socket.emit('stage', { stage: 5, label: 'Cleaning up Seedr...' });
             socket.emit('log', 'Deleting from Seedr...');
