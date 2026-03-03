@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import drive from './drive.js';
+import Drive from './drive.js';
 import Seedr from './seedr.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,6 +31,46 @@ if (!SEEDR_EMAIL || !SEEDR_PASSWORD || SEEDR_EMAIL === 'your_seedr_email@example
 }
 
 const seedr = new Seedr(SEEDR_EMAIL, SEEDR_PASSWORD);
+
+// ── Load Google Drive Accounts ──
+function loadDriveAccounts() {
+    const accounts = [];
+
+    // Try GDRIVE_ACCOUNTS JSON env var first
+    if (process.env.GDRIVE_ACCOUNTS) {
+        try {
+            const parsed = JSON.parse(process.env.GDRIVE_ACCOUNTS);
+            if (Array.isArray(parsed)) {
+                parsed.forEach((acc, i) => {
+                    accounts.push({
+                        name: acc.name || `Drive Account ${i + 1}`,
+                        client_id: acc.client_id,
+                        client_secret: acc.client_secret,
+                        refresh_token: acc.refresh_token,
+                    });
+                });
+            }
+        } catch (e) {
+            console.error('⚠ Failed to parse GDRIVE_ACCOUNTS env var:', e.message);
+        }
+    }
+
+    // Fallback: if no GDRIVE_ACCOUNTS, use legacy single-account env vars
+    if (accounts.length === 0 && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
+        accounts.push({
+            name: 'Default Google Drive',
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+        });
+    }
+
+    return accounts;
+}
+
+const driveAccounts = loadDriveAccounts();
+console.log(`📁 Loaded ${driveAccounts.length} Google Drive account(s)`);
+driveAccounts.forEach((acc, i) => console.log(`   ${i + 1}. ${acc.name}`));
 
 const app = express();
 const server = http.createServer(app);
@@ -108,13 +148,45 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('start-transfer', async (magnetLink) => {
+    // Send available account list
+    socket.on('get-accounts', (callback) => {
+        const accountList = driveAccounts.map((acc, i) => ({
+            index: i,
+            name: acc.name,
+        }));
+        callback(accountList);
+    });
+
+    socket.on('start-transfer', async (data) => {
         if (!authenticated) {
             socket.emit('error', 'Not authenticated. Please enter the password.');
             return;
         }
 
+        // Support both old format (string) and new format (object with magnetLink + accountIndex)
+        let magnetLink, accountIndex;
+        if (typeof data === 'string') {
+            magnetLink = data;
+            accountIndex = 0;
+        } else {
+            magnetLink = data.magnetLink;
+            accountIndex = data.accountIndex;
+        }
+
+        // Validate account index
+        if (driveAccounts.length === 0) {
+            socket.emit('error', 'No Google Drive accounts configured! Please set GDRIVE_ACCOUNTS or GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN env vars.');
+            return;
+        }
+
+        if (accountIndex < 0 || accountIndex >= driveAccounts.length) {
+            accountIndex = 0;
+        }
+
+        const selectedAccount = driveAccounts[accountIndex];
+
         console.log(`Received magnet link: ${magnetLink}`);
+        console.log(`Selected Drive account: ${selectedAccount.name}`);
 
         try {
             // ── Stage 1: Login & Add magnet to Seedr ──
@@ -186,18 +258,26 @@ io.on('connection', (socket) => {
             socket.emit('log', `Clean name: ${cleanedName}`);
             socket.emit('log', `Drive folder: ${movieName}`);
 
-            // ── Stage 4: Upload to Google Drive ──
-            socket.emit('stage', { stage: 4, label: 'Uploading to Google Drive...' });
+            // ── Stage 4: Authorize with chosen Google Drive account ──
+            socket.emit('stage', { stage: 4, label: `Connecting to "${selectedAccount.name}"...` });
+            socket.emit('log', `Authenticating with Drive account: ${selectedAccount.name}`);
+
+            const driveInstance = new Drive();
+            await driveInstance.authorizeWithAccount(selectedAccount);
+            socket.emit('log', 'Drive authentication successful!');
+
+            // ── Stage 5: Upload to Google Drive ──
+            socket.emit('stage', { stage: 5, label: 'Uploading to Google Drive...' });
 
             socket.emit('log', `Creating Drive folder "${movieName}"...`);
-            const driveFolderId = await drive.findOrCreateFolder(movieName);
+            const driveFolderId = await driveInstance.findOrCreateFolder(movieName);
             socket.emit('log', 'Folder ready! Streaming from Seedr to Drive...');
 
             const { stream, contentLength, contentType } = await seedr.downloadFileStream(targetFile.id);
             const mimeType = contentType || 'application/octet-stream';
             const uploadSize = contentLength || fileSize;
 
-            const driveFileId = await drive.uploadStream(
+            const driveFileId = await driveInstance.uploadStream(
                 cleanedName, stream, mimeType, uploadSize,
                 (progressEvent) => {
                     if (uploadSize && progressEvent.bytesRead) {
@@ -210,19 +290,19 @@ io.on('connection', (socket) => {
 
             socket.emit('log', `Upload complete! Drive File ID: ${driveFileId}`);
 
-            // ── Stage 4b: Make publicly accessible ──
+            // ── Stage 5b: Make publicly accessible ──
             socket.emit('log', 'Setting sharing permissions...');
             try {
-                await drive.makePublic(driveFolderId);
-                const shareLink = await drive.makePublic(driveFileId);
+                await driveInstance.makePublic(driveFolderId);
+                const shareLink = await driveInstance.makePublic(driveFileId);
                 socket.emit('log', '🔗 File is now public (anyone with the link)');
                 socket.emit('share-link', shareLink);
             } catch (shareErr) {
                 socket.emit('log', `⚠ Sharing warning: ${shareErr.message}`);
             }
 
-            // ── Stage 5: Cleanup Seedr ──
-            socket.emit('stage', { stage: 5, label: 'Cleaning up Seedr...' });
+            // ── Stage 6: Cleanup Seedr ──
+            socket.emit('stage', { stage: 6, label: 'Cleaning up Seedr...' });
             socket.emit('log', 'Deleting from Seedr...');
 
             try {
@@ -236,7 +316,7 @@ io.on('connection', (socket) => {
                 socket.emit('log', `⚠ Cleanup warning: ${cleanupErr.message}`);
             }
 
-            socket.emit('success', `✅ "${cleanedName}" uploaded to Drive in folder "${movieName}"!`);
+            socket.emit('success', `✅ "${cleanedName}" uploaded to "${selectedAccount.name}" in folder "${movieName}"!`);
 
         } catch (err) {
             console.error('Transfer error:', err);
@@ -254,7 +334,8 @@ server.listen(port, () => {
     console.log(`\n🚀 Server listening on http://localhost:${port}`);
     console.log(`📧 Seedr: ${SEEDR_EMAIL}`);
     console.log(`🔒 Password protected: YES`);
-    console.log(`📁 Flow: Magnet → Seedr → Google Drive\n`);
+    console.log(`📁 Flow: Magnet → Seedr → Google Drive`);
+    console.log(`📦 Drive accounts: ${driveAccounts.length}\n`);
 
     // Only open browser locally, not on cloud
     if (!process.env.RENDER && !process.env.NODE_ENV) {

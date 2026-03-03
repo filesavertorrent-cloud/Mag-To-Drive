@@ -3,7 +3,6 @@ import path from 'path';
 import process from 'process';
 import { google } from 'googleapis';
 
-// If modifying these scopes, delete token.json.
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');
 const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
@@ -12,6 +11,113 @@ class Drive {
     constructor() {
         this.authHttpClient = null;
         this.drive = null;
+    }
+
+    /**
+     * Create an OAuth2 client from account credentials with forceRefreshOnFailure
+     */
+    createAuthClient(account) {
+        const oauth2Client = new google.auth.OAuth2(
+            account.client_id,
+            account.client_secret
+        );
+        oauth2Client.setCredentials({
+            refresh_token: account.refresh_token,
+        });
+        // Force token refresh on failure — prevents stale access tokens from causing errors
+        oauth2Client.forceRefreshOnFailure = true;
+        return oauth2Client;
+    }
+
+    /**
+     * Authorize with a specific account object { client_id, client_secret, refresh_token }
+     */
+    async authorizeWithAccount(account) {
+        try {
+            const client = this.createAuthClient(account);
+
+            // Proactively refresh the access token to catch invalid_grant early
+            try {
+                await client.getAccessToken();
+            } catch (tokenErr) {
+                const errMsg = tokenErr.message || '';
+                if (errMsg.includes('invalid_grant') || errMsg.includes('Token has been expired or revoked')) {
+                    throw new Error(
+                        `Google Drive auth failed (invalid_grant): The refresh token for account "${account.name || 'Default'}" has expired or been revoked. ` +
+                        'Please generate a new refresh token from Google Cloud Console and update the GDRIVE_ACCOUNTS env var in Render. ' +
+                        'Also ensure your OAuth app is published to "Production" status so tokens don\'t expire every 7 days.'
+                    );
+                }
+                throw tokenErr;
+            }
+
+            this.authHttpClient = client;
+            this.drive = google.drive({ version: 'v3', auth: client });
+            return client;
+        } catch (err) {
+            if (err.message.includes('invalid_grant')) {
+                throw err; // Already formatted above
+            }
+            throw new Error(`Google Drive authorization failed: ${err.message}`);
+        }
+    }
+
+    /**
+     * Legacy authorize — loads from env vars or token.json (backward compatible)
+     */
+    async authorize() {
+        let client = await this.loadSavedCredentialsIfExist();
+        if (client) {
+            // Wrap legacy client with forceRefreshOnFailure
+            client.forceRefreshOnFailure = true;
+
+            // Proactively test token
+            try {
+                await client.getAccessToken();
+            } catch (tokenErr) {
+                const errMsg = tokenErr.message || '';
+                if (errMsg.includes('invalid_grant') || errMsg.includes('Token has been expired or revoked')) {
+                    throw new Error(
+                        'Google Drive auth failed (invalid_grant): Your refresh token has expired or been revoked. ' +
+                        'Please generate a new refresh token and update your environment variables. ' +
+                        'Ensure your Google OAuth app is published to "Production" status so tokens don\'t expire every 7 days.'
+                    );
+                }
+                throw tokenErr;
+            }
+
+            this.authHttpClient = client;
+            this.drive = google.drive({ version: 'v3', auth: client });
+            return client;
+        }
+
+        // If running in cloud without credentials, throw a helpful error
+        if (process.env.RENDER || process.env.NODE_ENV === 'production') {
+            throw new Error('Google Drive credentials not configured! Set GDRIVE_ACCOUNTS env var, or set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN environment variables.');
+        }
+
+        // Local development: use interactive auth
+        console.log("Authorizing...");
+        const { authenticate } = await import('@google-cloud/local-auth');
+        try {
+            client = await authenticate({
+                scopes: SCOPES,
+                keyfilePath: CREDENTIALS_PATH,
+            });
+        } catch (error) {
+            if (error.code === 'ENOENT' || error.message.includes('Cannot find module')) {
+                console.error("Error: credentials.json not found.");
+                throw new Error("Missing credentials.json!");
+            }
+            throw error;
+        }
+
+        if (client.credentials) {
+            await this.saveCredentials(client);
+        }
+        this.authHttpClient = client;
+        this.drive = google.drive({ version: 'v3', auth: client });
+        return client;
     }
 
     async loadSavedCredentialsIfExist() {
@@ -46,43 +152,6 @@ class Drive {
             refresh_token: client.credentials.refresh_token,
         });
         await fs.promises.writeFile(TOKEN_PATH, payload);
-    }
-
-    async authorize() {
-        let client = await this.loadSavedCredentialsIfExist();
-        if (client) {
-            this.authHttpClient = client;
-            this.drive = google.drive({ version: 'v3', auth: client });
-            return client;
-        }
-
-        // If running in cloud without credentials, throw a helpful error
-        if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-            throw new Error('Google Drive credentials not configured! Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN environment variables.');
-        }
-
-        // Local development: use interactive auth
-        console.log("Authorizing...");
-        const { authenticate } = await import('@google-cloud/local-auth');
-        try {
-            client = await authenticate({
-                scopes: SCOPES,
-                keyfilePath: CREDENTIALS_PATH,
-            });
-        } catch (error) {
-            if (error.code === 'ENOENT' || error.message.includes('Cannot find module')) {
-                console.error("Error: credentials.json not found.");
-                throw new Error("Missing credentials.json!");
-            }
-            throw error;
-        }
-
-        if (client.credentials) {
-            await this.saveCredentials(client);
-        }
-        this.authHttpClient = client;
-        this.drive = google.drive({ version: 'v3', auth: client });
-        return client;
     }
 
     async findOrCreateFolder(folderName) {
@@ -172,4 +241,4 @@ class Drive {
     }
 }
 
-export default new Drive();
+export default Drive;

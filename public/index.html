@@ -150,6 +150,69 @@
             display: none;
         }
 
+        /* Account Selector */
+        .account-selector {
+            margin-bottom: 1rem;
+        }
+
+        .account-selector label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .account-selector select {
+            width: 100%;
+            padding: 12px 16px;
+            background-color: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            color: var(--text-color);
+            font-size: 0.95rem;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238888a0' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+        }
+
+        .account-selector select:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .account-selector select option {
+            background: #1a1a2e;
+            color: var(--text-color);
+            padding: 8px;
+        }
+
+        .account-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 0.4rem;
+            font-size: 0.75rem;
+            color: var(--secondary-color);
+            opacity: 0.8;
+        }
+
+        .account-info .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--secondary-color);
+            flex-shrink: 0;
+        }
+
         /* Stages */
         .stages {
             display: none;
@@ -362,6 +425,14 @@
         .btn-get-link .copied-tooltip.show {
             opacity: 1;
         }
+
+        /* Loading spinner for account loading */
+        .loading-accounts {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            padding: 8px 0;
+        }
     </style>
 </head>
 
@@ -383,6 +454,19 @@
         <!-- Main Screen (hidden until auth) -->
         <div id="mainScreen">
             <input type="text" id="magnetLink" placeholder="magnet:?xt=urn:btih:..." autocomplete="off">
+
+            <!-- Account Selector -->
+            <div class="account-selector" id="accountSelector">
+                <label>📁 Upload to Google Drive Account</label>
+                <select id="accountSelect">
+                    <option value="0">Loading accounts...</option>
+                </select>
+                <div class="account-info" id="accountInfo" style="display:none;">
+                    <span class="dot"></span>
+                    <span id="accountInfoText">Ready</span>
+                </div>
+            </div>
+
             <button class="btn" id="startBtn" onclick="startTransfer()">🚀 Start Transfer</button>
 
             <div class="stages" id="stagesContainer">
@@ -396,10 +480,13 @@
                     <div class="stage-icon">3</div><span>Finding file</span>
                 </div>
                 <div class="stage-item" id="stage-4">
-                    <div class="stage-icon">4</div><span>Uploading to Google Drive</span>
+                    <div class="stage-icon">4</div><span>Connecting to Google Drive</span>
                 </div>
                 <div class="stage-item" id="stage-5">
-                    <div class="stage-icon">5</div><span>Cleaning up Seedr</span>
+                    <div class="stage-icon">5</div><span>Uploading to Google Drive</span>
+                </div>
+                <div class="stage-item" id="stage-6">
+                    <div class="stage-icon">6</div><span>Cleaning up Seedr</span>
                 </div>
             </div>
 
@@ -420,6 +507,7 @@
 
     <script>
         const socket = io();
+        let driveAccounts = [];
 
         // Login
         function doLogin() {
@@ -434,6 +522,7 @@
                 if (res.success) {
                     document.getElementById('loginScreen').style.display = 'none';
                     document.getElementById('mainScreen').style.display = 'block';
+                    loadAccounts();
                 } else {
                     errEl.textContent = 'Wrong password. Try again.';
                     document.getElementById('loginBtn').disabled = false;
@@ -445,6 +534,36 @@
             if (e.key === 'Enter') doLogin();
         });
 
+        // Load Drive accounts after login
+        function loadAccounts() {
+            socket.emit('get-accounts', (accounts) => {
+                driveAccounts = accounts;
+                const select = document.getElementById('accountSelect');
+                const infoDiv = document.getElementById('accountInfo');
+                const infoText = document.getElementById('accountInfoText');
+
+                select.innerHTML = '';
+
+                if (accounts.length === 0) {
+                    select.innerHTML = '<option value="-1">⚠ No accounts configured</option>';
+                    infoDiv.style.display = 'flex';
+                    infoText.textContent = 'Set GDRIVE_ACCOUNTS env var in Render';
+                    infoDiv.querySelector('.dot').style.background = 'var(--error-color)';
+                    return;
+                }
+
+                accounts.forEach((acc) => {
+                    const opt = document.createElement('option');
+                    opt.value = acc.index;
+                    opt.textContent = `📁 ${acc.name}`;
+                    select.appendChild(opt);
+                });
+
+                infoDiv.style.display = 'flex';
+                infoText.textContent = `${accounts.length} account${accounts.length > 1 ? 's' : ''} available`;
+            });
+        }
+
         // Transfer
         const startBtn = document.getElementById('startBtn');
         const magnetInput = document.getElementById('magnetLink');
@@ -452,6 +571,7 @@
         const progressBar = document.getElementById('progressBar');
         const progressContainer = document.getElementById('progressContainer');
         const progressLabel = document.getElementById('progressLabel');
+        const TOTAL_STAGES = 6;
 
         function log(msg, type = 'normal') {
             statusDiv.classList.add('active');
@@ -478,7 +598,16 @@
             if (!magnet) { log('Please enter a magnet link.', 'error'); return; }
             if (!magnet.startsWith('magnet:?')) { log('Invalid magnet link.', 'error'); return; }
 
+            const accountIndex = parseInt(document.getElementById('accountSelect').value);
+            if (accountIndex < 0) {
+                log('No Google Drive account configured. Please set GDRIVE_ACCOUNTS.', 'error');
+                return;
+            }
+
+            const selectedName = driveAccounts.find(a => a.index === accountIndex)?.name || 'Unknown';
+
             startBtn.disabled = true; magnetInput.disabled = true;
+            document.getElementById('accountSelect').disabled = true;
             progressContainer.style.display = 'block';
             progressLabel.style.display = 'block';
             progressBar.style.width = '0%';
@@ -487,11 +616,13 @@
             currentShareLink = '';
             statusDiv.innerHTML = '';
             log('Initializing transfer...');
-            socket.emit('start-transfer', magnet);
+            log(`Uploading to: ${selectedName}`);
+            socket.emit('start-transfer', { magnetLink: magnet, accountIndex: accountIndex });
         }
 
         function resetUI() {
             startBtn.disabled = false; magnetInput.disabled = false;
+            document.getElementById('accountSelect').disabled = false;
             magnetInput.value = '';
         }
 
@@ -509,7 +640,7 @@
             document.getElementById('getLinkContainer').classList.add('active');
         });
         socket.on('success', (d) => {
-            for (let i = 1; i <= 5; i++) {
+            for (let i = 1; i <= TOTAL_STAGES; i++) {
                 const el = document.getElementById(`stage-${i}`);
                 if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.stage-icon').textContent = '✓'; }
             }
