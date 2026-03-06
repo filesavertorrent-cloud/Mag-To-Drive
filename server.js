@@ -7,6 +7,10 @@ import { fileURLToPath } from 'url';
 import Drive from './drive.js';
 import Seedr from './seedr.js';
 
+// Firebase Database
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -32,45 +36,42 @@ if (!SEEDR_EMAIL || !SEEDR_PASSWORD || SEEDR_EMAIL === 'your_seedr_email@example
 
 const seedr = new Seedr(SEEDR_EMAIL, SEEDR_PASSWORD);
 
-// ── Load Google Drive Accounts ──
-function loadDriveAccounts() {
+// ── Firebase Integration ──
+const firebaseConfig = {
+    apiKey: "AIzaSyAt82sQGzK2PZFxKbr1uj6AB5IuzQWAteA",
+    authDomain: "mag-to-drive.firebaseapp.com",
+    projectId: "mag-to-drive",
+    storageBucket: "mag-to-drive.firebasestorage.app",
+    messagingSenderId: "113909644780",
+    appId: "1:113909644780:web:8d7c1660abe3e6ba07d4c9"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+let driveAccounts = [];
+
+// Listen to Firestore for live updates
+console.log('🔗 Connecting to Firebase Firestore...');
+onSnapshot(collection(db, 'drive_accounts'), (snapshot) => {
     const accounts = [];
-
-    // Try GDRIVE_ACCOUNTS JSON env var first
-    if (process.env.GDRIVE_ACCOUNTS) {
-        try {
-            const parsed = JSON.parse(process.env.GDRIVE_ACCOUNTS);
-            if (Array.isArray(parsed)) {
-                parsed.forEach((acc, i) => {
-                    accounts.push({
-                        name: acc.name || `Drive Account ${i + 1}`,
-                        client_id: acc.client_id,
-                        client_secret: acc.client_secret,
-                        refresh_token: acc.refresh_token,
-                    });
-                });
-            }
-        } catch (e) {
-            console.error('⚠ Failed to parse GDRIVE_ACCOUNTS env var:', e.message);
-        }
-    }
-
-    // Fallback: if no GDRIVE_ACCOUNTS, use legacy single-account env vars
-    if (accounts.length === 0 && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
+    snapshot.forEach((doc) => {
         accounts.push({
-            name: 'Default Google Drive',
-            client_id: process.env.GOOGLE_CLIENT_ID,
-            client_secret: process.env.GOOGLE_CLIENT_SECRET,
-            refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+            id: doc.id,
+            ...doc.data()
         });
-    }
+    });
 
-    return accounts;
-}
+    // Sort accounts alphabetically by name
+    accounts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-const driveAccounts = loadDriveAccounts();
-console.log(`📁 Loaded ${driveAccounts.length} Google Drive account(s)`);
-driveAccounts.forEach((acc, i) => console.log(`   ${i + 1}. ${acc.name}`));
+    driveAccounts = accounts;
+    console.log(`\n📁 Firebase Sync: Loaded ${driveAccounts.length} Google Drive account(s)`);
+    driveAccounts.forEach((acc, i) => console.log(`   ${i + 1}. ${acc.name}`));
+}, (error) => {
+    console.error('❌ Firebase Error: Could not connect to Firestore.', error.message);
+    console.error('   Make sure you created the database in "Test Mode".');
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -78,6 +79,16 @@ const io = new Server(server);
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Password verification middleware for API
+function authenticateAPI(req, res, next) {
+    const password = req.headers['x-admin-password'];
+    if (password === APP_PASSWORD) {
+        next();
+    } else {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+}
 
 // Password verification endpoint
 app.post('/api/verify-password', (req, res) => {
@@ -89,11 +100,47 @@ app.post('/api/verify-password', (req, res) => {
     }
 });
 
+// ── Admin API Endpoints ──
+app.get('/api/accounts', authenticateAPI, (req, res) => {
+    res.json({ success: true, accounts: driveAccounts });
+});
+
+app.post('/api/accounts', authenticateAPI, async (req, res) => {
+    try {
+        const newAccount = req.body;
+        if (!newAccount.name || !newAccount.client_id || !newAccount.client_secret || !newAccount.refresh_token) {
+            return res.status(400).json({ success: false, error: 'Missing required fields' });
+        }
+
+        await addDoc(collection(db, 'drive_accounts'), newAccount);
+        res.json({ success: true, message: 'Account added to Firebase!' });
+    } catch (error) {
+        console.error('Error adding account:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/accounts/:id', authenticateAPI, async (req, res) => {
+    try {
+        const id = req.params.id;
+        await deleteDoc(doc(db, 'drive_accounts', id));
+        res.json({ success: true, message: 'Account deleted from Firebase!' });
+    } catch (error) {
+        console.error('Error deleting account:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 // Serve static files
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
+});
+
+app.get('/admin', (req, res) => {
+    res.sendFile(__dirname + '/public/admin.html');
 });
 
 // Clean up torrent filenames before uploading
@@ -148,7 +195,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Send available account list
+    // Send available account list (no secrets)
     socket.on('get-accounts', (callback) => {
         const accountList = driveAccounts.map((acc, i) => ({
             index: i,
@@ -175,7 +222,7 @@ io.on('connection', (socket) => {
 
         // Validate account index
         if (driveAccounts.length === 0) {
-            socket.emit('error', 'No Google Drive accounts configured! Please set GDRIVE_ACCOUNTS or GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN env vars.');
+            socket.emit('error', 'No Google Drive accounts configured! Please add an account in the /admin panel.');
             return;
         }
 
@@ -335,7 +382,7 @@ server.listen(port, () => {
     console.log(`📧 Seedr: ${SEEDR_EMAIL}`);
     console.log(`🔒 Password protected: YES`);
     console.log(`📁 Flow: Magnet → Seedr → Google Drive`);
-    console.log(`📦 Drive accounts: ${driveAccounts.length}\n`);
+    console.log(`🎛️  Admin Panel: http://localhost:${port}/admin\n`);
 
     // Only open browser locally, not on cloud
     if (!process.env.RENDER && !process.env.NODE_ENV) {
