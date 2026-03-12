@@ -306,7 +306,7 @@ io.on('connection', (socket) => {
                 baseNameForFolder = folderName;
             } else {
                 const largest = targetFiles.reduce((prev, current) => (prev.size > current.size) ? prev : current);
-                baseNameForFolder = largest.name;
+                baseNameForFolder = cleanFileName(largest.name);
             }
 
             const cleanedName = cleanFileName(baseNameForFolder);
@@ -336,15 +336,16 @@ io.on('connection', (socket) => {
                 const targetFile = targetFiles[i];
                 const originalName = targetFile.name;
                 const fileSize = targetFile.size || 0;
+                const fileCleanedName = cleanFileName(originalName);
 
-                socket.emit('log', `Uploading (${i+1}/${targetFiles.length}): ${originalName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+                socket.emit('log', `Uploading (${i+1}/${targetFiles.length}): ${fileCleanedName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
 
                 const { stream, contentLength, contentType } = await seedr.downloadFileStream(targetFile.id);
                 const mimeType = contentType || 'application/octet-stream';
                 const uploadSize = contentLength || fileSize;
 
                 const driveFileId = await driveInstance.uploadStream(
-                    originalName, stream, mimeType, uploadSize,
+                    fileCleanedName, stream, mimeType, uploadSize,
                     (progressEvent) => {
                         if (uploadSize && progressEvent.bytesRead) {
                             const percent = ((progressEvent.bytesRead / uploadSize) * 100).toFixed(1);
@@ -355,16 +356,22 @@ io.on('connection', (socket) => {
                 );
 
                 uploadedFileIds.push(driveFileId);
-                socket.emit('log', `Upload complete for: ${originalName}`);
+                socket.emit('log', `Upload complete for: ${fileCleanedName}`);
             }
 
             // ── Stage 5b: Make publicly accessible ──
             socket.emit('log', 'Setting sharing permissions...');
             try {
-                const folderShareLink = await driveInstance.makePublic(driveFolderId);
-                // The folder and its contents inherit the public link
-                socket.emit('log', '🔗 Folder is now public (anyone with the link)');
-                socket.emit('share-link', folderShareLink);
+                if (targetFiles.length === 1 && uploadedFileIds.length === 1) {
+                    await driveInstance.makePublic(driveFolderId);
+                    const fileShareLink = await driveInstance.makePublic(uploadedFileIds[0]);
+                    socket.emit('log', '🔗 File is now public (anyone with the link)');
+                    socket.emit('share-link', fileShareLink);
+                } else {
+                    const folderShareLink = await driveInstance.makePublic(driveFolderId);
+                    socket.emit('log', '🔗 Folder is now public (anyone with the link)');
+                    socket.emit('share-link', folderShareLink);
+                }
             } catch (shareErr) {
                 socket.emit('log', `⚠ Sharing warning: ${shareErr.message}`);
             }
