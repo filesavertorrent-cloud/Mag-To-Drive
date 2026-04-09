@@ -3,13 +3,12 @@ import express from 'express';
 import { Server } from 'socket.io';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Drive from './drive.js';
-import Seedr from './seedr.js';
+import LocalTorrent from './local-torrent.js';
 
-// Firebase Database
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore';
+// Local File System integration for accounts
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,92 +22,40 @@ process.on('unhandledRejection', (reason) => {
     console.error('Unhandled Rejection (server stays alive):', reason);
 });
 
-// Validate Seedr credentials
-const SEEDR_EMAIL = process.env.SEEDR_EMAIL;
-const SEEDR_PASSWORD = process.env.SEEDR_PASSWORD;
 const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123';
 
-if (!SEEDR_EMAIL || !SEEDR_PASSWORD || SEEDR_EMAIL === 'your_seedr_email@example.com') {
-    console.error('\n❌ ERROR: Please set your Seedr credentials in the .env file!');
-    console.error('   Edit .env and replace the placeholder values.\n');
-    process.exit(1);
-}
+// Initialize local torrent engine
+const localTorrent = new LocalTorrent();
 
-const seedr = new Seedr(SEEDR_EMAIL, SEEDR_PASSWORD);
-
-// ── Firebase Integration ──
-const firebaseConfig = {
-    apiKey: "AIzaSyAt82sQGzK2PZFxKbr1uj6AB5IuzQWAteA",
-    authDomain: "mag-to-drive.firebaseapp.com",
-    projectId: "mag-to-drive",
-    storageBucket: "mag-to-drive.firebasestorage.app",
-    messagingSenderId: "113909644780",
-    appId: "1:113909644780:web:8d7c1660abe3e6ba07d4c9"
-};
-
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp);
+const ACCOUNTS_FILE = path.join(__dirname, 'accounts.json');
 
 let driveAccounts = [];
 
-function getEnvAccounts() {
-    let accounts = [];
-    if (process.env.GDRIVE_ACCOUNTS) {
-        try {
-            accounts = JSON.parse(process.env.GDRIVE_ACCOUNTS);
-        } catch (err) {
-            console.error('❌ Error parsing GDRIVE_ACCOUNTS env var:', err.message);
+function loadAccounts() {
+    try {
+        if (!fs.existsSync(ACCOUNTS_FILE)) {
+            fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify([]));
         }
+        const data = fs.readFileSync(ACCOUNTS_FILE, 'utf8');
+        driveAccounts = JSON.parse(data);
+        
+        // Sort accounts alphabetically by name
+        driveAccounts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        
+        console.log(`\n📁 Local Storage: Loaded ${driveAccounts.length} Google Drive account(s)`);
+        driveAccounts.forEach((acc, i) => console.log(`   ${i + 1}. ${acc.name}`));
+    } catch (err) {
+        console.error('❌ Error reading accounts.json:', err.message);
+        driveAccounts = [];
     }
-    
-    // Automatically use legacy individual environment variables if they are set
-    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN) {
-        const exists = accounts.some(acc => acc.client_id === process.env.GOOGLE_CLIENT_ID);
-        if (!exists) {
-            accounts.push({
-                name: "My Cloud Drive",
-                client_id: process.env.GOOGLE_CLIENT_ID,
-                client_secret: process.env.GOOGLE_CLIENT_SECRET,
-                refresh_token: process.env.GOOGLE_REFRESH_TOKEN
-            });
-        }
-    }
-    return accounts;
 }
 
-// Initial load from Env Vars
-driveAccounts = getEnvAccounts();
-if (driveAccounts.length > 0) {
-    console.log(`\n📁 Loaded ${driveAccounts.length} GOOGLE DRIVE account(s) from Render environment variables.`);
+function saveAccounts() {
+    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(driveAccounts, null, 2));
 }
 
-// Listen to Firestore for live updates
-console.log('🔗 Connecting to Firebase Firestore...');
-onSnapshot(collection(db, 'drive_accounts'), (snapshot) => {
-    const firebaseAccounts = [];
-    snapshot.forEach((doc) => {
-        firebaseAccounts.push({
-            id: doc.id,
-            ...doc.data()
-        });
-    });
-
-    const allAccounts = [...getEnvAccounts(), ...firebaseAccounts];
-
-    // Sort accounts alphabetically by name
-    allAccounts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-    driveAccounts = allAccounts;
-    console.log(`\n📁 Sync: Loaded ${driveAccounts.length} Google Drive account(s)`);
-    driveAccounts.forEach((acc, i) => console.log(`   ${i + 1}. ${acc.name}`));
-}, (error) => {
-    console.error('❌ Firebase Error: Could not connect to Firestore.', error.message);
-    if (driveAccounts.length === 0) {
-        console.error('   👉 No accounts loaded. Pls set GDRIVE_ACCOUNTS env var in Render or fix Firebase.');
-    } else {
-        console.log(`   👉 Using ${driveAccounts.length} account(s) from GDRIVE_ACCOUNTS environment variable.`);
-    }
-});
+// Load accounts on startup
+loadAccounts();
 
 const app = express();
 const server = http.createServer(app);
@@ -149,8 +96,12 @@ app.post('/api/accounts', authenticateAPI, async (req, res) => {
             return res.status(400).json({ success: false, error: 'Missing required fields' });
         }
 
-        await addDoc(collection(db, 'drive_accounts'), newAccount);
-        res.json({ success: true, message: 'Account added to Firebase!' });
+        newAccount.id = Date.now().toString(); // Generate a simple unique ID
+        driveAccounts.push(newAccount);
+        driveAccounts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        saveAccounts();
+        
+        res.json({ success: true, message: 'Account added locally!' });
     } catch (error) {
         console.error('Error adding account:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -160,8 +111,9 @@ app.post('/api/accounts', authenticateAPI, async (req, res) => {
 app.delete('/api/accounts/:id', authenticateAPI, async (req, res) => {
     try {
         const id = req.params.id;
-        await deleteDoc(doc(db, 'drive_accounts', id));
-        res.json({ success: true, message: 'Account deleted from Firebase!' });
+        driveAccounts = driveAccounts.filter(acc => acc.id !== id);
+        saveAccounts();
+        res.json({ success: true, message: 'Account deleted locally!' });
     } catch (error) {
         console.error('Error deleting account:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -203,19 +155,6 @@ function getMovieName(cleanedFilename) {
     if (fallback) return fallback[1].trim();
 
     return nameWithoutExt.trim();
-}
-
-// Find the largest file in Seedr folder contents
-function findLargestFile(folderData) {
-    let largest = null;
-    if (folderData.files && folderData.files.length > 0) {
-        for (const file of folderData.files) {
-            if (!largest || file.size > largest.size) {
-                largest = file;
-            }
-        }
-    }
-    return largest;
 }
 
 io.on('connection', (socket) => {
@@ -272,82 +211,40 @@ io.on('connection', (socket) => {
         console.log(`Received magnet link: ${magnetLink}`);
         console.log(`Selected Drive account: ${selectedAccount.name}`);
 
+        let torrentResult = null;
+
         try {
-            // ── Stage 1: Login & Add magnet to Seedr ──
-            socket.emit('stage', { stage: 1, label: 'Adding magnet to Seedr...' });
-            socket.emit('log', 'Logging into Seedr...');
+            // ── Stage 1: Add magnet link ──
+            socket.emit('stage', { stage: 1, label: 'Adding magnet link...' });
+            socket.emit('log', 'Starting local torrent download...');
+            socket.emit('log', 'Waiting for torrent metadata (finding peers)...');
 
-            await seedr.login();
-            socket.emit('log', 'Seedr login OK!');
-            socket.emit('log', 'Sending magnet link to Seedr...');
+            // ── Stage 2: Download locally ──
+            socket.emit('stage', { stage: 2, label: 'Downloading locally...' });
 
-            const addResult = await seedr.addMagnet(magnetLink);
-            console.log('Seedr addMagnet result:', JSON.stringify(addResult));
-
-            if (addResult.result === false || addResult.error) {
-                throw new Error(addResult.error || addResult.message || 'Seedr rejected the magnet link');
-            }
-
-            socket.emit('log', `Magnet added! Title: ${addResult.title || 'processing...'}`);
-
-            // ── Stage 2: Wait for Seedr to download ──
-            socket.emit('stage', { stage: 2, label: 'Seedr is downloading...' });
-
-            const rootAfterDownload = await seedr.waitForDownload(({ progress, title, status }) => {
-                socket.emit('log', `Seedr: ${progress}% — ${title}`);
+            torrentResult = await localTorrent.addMagnet(magnetLink, ({ progress, title, status, downloadSpeed, timeRemaining }) => {
+                const speedStr = downloadSpeed ? `${downloadSpeed} MB/s` : '';
+                const timeStr = timeRemaining && timeRemaining !== 'Infinity' ? ` — ETA: ${timeRemaining}` : '';
+                socket.emit('log', `Local: ${progress}% — ${title} ${speedStr}${timeStr}`);
                 socket.emit('progress', { stage: 'seedr', percent: progress });
-                console.log(`Seedr: ${progress}% — ${title}`);
+                console.log(`Local: ${progress}% — ${title}`);
             });
 
-            socket.emit('log', 'Seedr download complete!');
+            socket.emit('log', 'Local download complete!');
 
-            // ── Stage 3: Find the downloaded file ──
-            socket.emit('stage', { stage: 3, label: 'Finding downloaded file...' });
-            socket.emit('log', 'Looking for file(s) in Seedr...');
+            // ── Stage 3: Find downloaded files ──
+            socket.emit('stage', { stage: 3, label: 'Finding downloaded files...' });
+            socket.emit('log', 'Looking for downloaded file(s)...');
 
-            const rootContents = rootAfterDownload || await seedr.getFolderContents();
+            const targetFiles = torrentResult.files;
 
-            let targetFiles = [];
-            let targetFolderId = null;
-            let folderName = 'Downloaded Files';
-
-            if (rootContents.folders && rootContents.folders.length > 0) {
-                const folder = rootContents.folders[rootContents.folders.length - 1];
-                targetFolderId = folder.id;
-                folderName = folder.name;
-
-                const folderContents = await seedr.getFolderContents(folder.id);
-                if (folderContents.files && folderContents.files.length > 0) {
-                    targetFiles = folderContents.files.map(f => {
-                        if (f.folder_file_id) f.id = f.folder_file_id;
-                        return f;
-                    });
-                }
+            if (!targetFiles || targetFiles.length === 0) {
+                throw new Error('Could not find any downloaded files.');
             }
 
-            if (targetFiles.length === 0) {
-                if (rootContents.files && rootContents.files.length > 0) {
-                    targetFiles = rootContents.files.map(f => {
-                        if (f.folder_file_id) f.id = f.folder_file_id;
-                        return f;
-                    });
-                }
-            }
-
-            if (targetFiles.length === 0) {
-                throw new Error('Could not find any downloaded files in Seedr.');
-            }
-
-            let baseNameForFolder;
-            if (targetFolderId) {
-                baseNameForFolder = folderName;
-            } else {
-                const largest = targetFiles.reduce((prev, current) => (prev.size > current.size) ? prev : current);
-                baseNameForFolder = cleanFileName(largest.name);
-            }
-
-            const cleanedName = cleanFileName(baseNameForFolder);
-            const movieName = getMovieName(cleanedName);
+            // Determine Drive folder name from the torrent name
+            const cleanedTorrentName = cleanFileName(torrentResult.name);
+            const movieName = getMovieName(cleanedTorrentName);
 
             socket.emit('log', `Found ${targetFiles.length} file(s)`);
             socket.emit('log', `Drive folder will be: ${movieName}`);
@@ -365,7 +262,7 @@ io.on('connection', (socket) => {
 
             socket.emit('log', `Creating Drive folder "${movieName}"...`);
             const driveFolderId = await driveInstance.findOrCreateFolder(movieName);
-            socket.emit('log', `Folder ready! Streaming ${targetFiles.length} file(s) from Seedr to Drive...`);
+            socket.emit('log', `Folder ready! Uploading ${targetFiles.length} file(s) to Drive...`);
 
             let uploadedFileIds = [];
 
@@ -377,7 +274,7 @@ io.on('connection', (socket) => {
 
                 socket.emit('log', `Uploading (${i+1}/${targetFiles.length}): ${fileCleanedName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
 
-                const { stream, contentLength, contentType } = await seedr.downloadFileStream(targetFile.id);
+                const { stream, contentLength, contentType } = localTorrent.getFileStream(targetFile.fullPath);
                 const mimeType = contentType || 'application/octet-stream';
                 const uploadSize = contentLength || fileSize;
 
@@ -413,19 +310,27 @@ io.on('connection', (socket) => {
                 socket.emit('log', `⚠ Sharing warning: ${shareErr.message}`);
             }
 
-            // ── Stage 6: Cleanup Seedr ──
-            socket.emit('stage', { stage: 6, label: 'Cleaning up Seedr...' });
-            socket.emit('log', 'Deleting from Seedr...');
+            // ── Stage 6: Cleanup local files ──
+            socket.emit('stage', { stage: 6, label: 'Cleaning up local files...' });
+            socket.emit('log', 'Deleting local downloaded files...');
 
             try {
-                if (targetFolderId) {
-                    await seedr.deleteFolder(targetFolderId);
-                } else {
-                    for (const f of targetFiles) {
-                        await seedr.deleteFile(f.id);
+                // Remove the torrent from WebTorrent client first
+                localTorrent.removeTorrent(torrentResult.infoHash);
+
+                // Delete the folder from disk
+                localTorrent.cleanup(torrentResult.folderPath);
+
+                // Also try to clean up the individual file if it was a single-file torrent
+                // (single-file torrents sometimes don't create a subfolder)
+                for (const f of targetFiles) {
+                    if (fs.existsSync(f.fullPath)) {
+                        fs.unlinkSync(f.fullPath);
+                        console.log(`Deleted: ${f.fullPath}`);
                     }
                 }
-                socket.emit('log', 'Seedr cleaned up!');
+
+                socket.emit('log', 'Local files cleaned up!');
             } catch (cleanupErr) {
                 socket.emit('log', `⚠ Cleanup warning: ${cleanupErr.message}`);
             }
@@ -434,6 +339,15 @@ io.on('connection', (socket) => {
 
         } catch (err) {
             console.error('Transfer error:', err);
+
+            // Cleanup on error too
+            if (torrentResult) {
+                try {
+                    localTorrent.removeTorrent(torrentResult.infoHash);
+                    localTorrent.cleanup(torrentResult.folderPath);
+                } catch (e) { /* ignore cleanup errors */ }
+            }
+
             const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message;
             socket.emit('error', `Transfer failed: ${errorMsg}`);
         }
@@ -446,12 +360,12 @@ io.on('connection', (socket) => {
 
 server.listen(port, () => {
     console.log(`\n🚀 Server listening on http://localhost:${port}`);
-    console.log(`📧 Seedr: ${SEEDR_EMAIL}`);
+    console.log(`📥 Mode: LOCAL TORRENT (No Seedr — No Size Limit!)`);
     console.log(`🔒 Password protected: YES`);
-    console.log(`📁 Flow: Magnet → Seedr → Google Drive`);
+    console.log(`📁 Flow: Magnet → Local Download → Google Drive`);
     console.log(`🎛️  Admin Panel: http://localhost:${port}/admin\n`);
 
-    // Only open browser locally, not on cloud
+    // Open browser locally
     if (!process.env.RENDER && !process.env.NODE_ENV) {
         import('open').then(m => m.default(`http://localhost:${port}`));
     }
